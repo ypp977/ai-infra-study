@@ -1,6 +1,7 @@
 # Day 1-Docker & GPU 容器化
 
-## 一、目标
+
+## 一、 🎯 学习目标
 
 - 在 **vipuser** 账号下安装并配置 Docker（含 NVIDIA 容器运行时）
 - 使用 **docker.xuanyuan.me** 作为镜像加速
