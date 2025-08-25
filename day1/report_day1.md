@@ -161,7 +161,9 @@ print("Providers:", ort.get_available_providers())
 ```bash
 cd ~/ai-infra-study/day1
 docker build -t ai-infra:day1 .
-docker run --gpus all --rm -it -v $PWD:/workspace ai-infra:day1 bash -lc "python torch_check.py"
+docker run --gpus all --rm -it -v $PWD:/workspace ai-infra:day1 bash -lc "python torch_check.py" #换成2*3080了
 ```
+
+![image-20250826005920833](./report_day1.assets/image-20250826005920833.png)
 
 
