@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: onnxruntime-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: onnxruntime
+  template:
+    metadata:
+      labels:
+        app: onnxruntime
+    spec:
+      volumes:
+      - name: model-cm
+        configMap:
+          name: mlp-onnx-cm
+      containers:
+      - name: onnxruntime
+        image: my-ai-infer:lite
+        imagePullPolicy: IfNotPresent
+        command: ["python", "/workspace/k8s_onnx_infer.py"]
+        volumeMounts:
+        - name: model-cm
+          mountPath: /workspace/models   # 只挂模型
+        ports:
+        - containerPort: 8001
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: onnxruntime-svc
+spec:
+  selector:
+    app: onnxruntime
+  type: ClusterIP
+  ports:
+  - port: 8001
+    targetPort: 8001
+
