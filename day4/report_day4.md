@@ -29,7 +29,7 @@ PY
 
 如果报错没有 `tensorrt`，就需要安装对应 wheel（版本要和 CUDA 匹配）。
 
-![image-20250826234023278](./report_day4.assets/image-20250826234023278.png)
+![image-20250827022009543](./report_day4.assets/image-20250827022009543.png)
 
 ------
 
@@ -57,7 +57,7 @@ trtexec --onnx=mlp.onnx --saveEngine=mlp_fp16.engine --fp16
 
 > 执行完成后，会得到 `mlp_fp16.engine` 文件。ls -lh mlp_fp16.engine即可查看
 
-![image-20250826235246655](./report_day4.assets/image-20250826235246655.png)
+![image-20250827022147667](./report_day4.assets/image-20250827022147667.png)
 
 ------
 
@@ -157,9 +157,9 @@ python tensorrt_infer.py
 pip install pycuda
 ```
 
-![image-20250826234616681](./report_day4.assets/image-20250826234616681.png)
+![image-20250827022219214](./report_day4.assets/image-20250827022219214.png)
 
-![image-20250827002241371](./report_day4.assets/image-20250827002241371.png)
+![image-20250827022255871](./report_day4.assets/image-20250827022255871.png)
 
 ------
 
@@ -219,7 +219,7 @@ if __name__ == "__main__":
 python onnx_cpu.py
 ```
 
-![image-20250827003233492](./report_day4.assets/image-20250827003233492.png)
+![image-20250827022348772](./report_day4.assets/image-20250827022348772.png)
 
 ```python
 # onnx_cuda.py
@@ -255,9 +255,9 @@ if __name__ == "__main__":
 python onnx_cuda.py
 ```
 
-![image-20250827003333668](./report_day4.assets/image-20250827003333668.png)
+![image-20250827022417487](./report_day4.assets/image-20250827022417487.png)
 
-TensorRT FP16![image-20250827003604981](./report_day4.assets/image-20250827003604981.png)
+TensorRT FP16![image-20250827022450109](./report_day4.assets/image-20250827022450109.png)
 
 ### 实验结果（batch=1, 1×1×28×28, iters=1000, warmup=100）
 
@@ -322,7 +322,7 @@ if __name__ == "__main__":
     main()
 ```
 
-![image-20250827015740290](./report_day4.assets/image-20250827015740290.png)
+![image-20250827022519132](./report_day4.assets/image-20250827022519132.png)
 
 ------
 
@@ -363,7 +363,7 @@ if __name__ == "__main__":
 
 > 进阶：想进一步降低 H2D/D2H 开销，可以改为 **IO Binding**（需要你管理 GPU 缓冲区，有需要我再给你一版）。
 
-![image-20250827015838502](./report_day4.assets/image-20250827015838502.png)
+![image-20250827022541904](./report_day4.assets/image-20250827022541904.png)
 
 ------
 
@@ -446,10 +446,11 @@ if __name__ == "__main__":
     main()
 ```
 
-![image-20250827020016962](./report_day4.assets/image-20250827020016962.png)
+![image-20250827022602864](./report_day4.assets/image-20250827022602864.png)
 
 | 方法          | 平均延迟 (ms) | 吞吐 (samples/s) | 备注                  |
 | ------------- | ------------: | ---------------: | --------------------- |
 | ORT CPU       |         2.915 |        2,810,563 | OMP/MKL=1             |
 | ORT CUDA EP   |         2.368 |        3,459,472 | onnxruntime-gpu       |
 | TensorRT FP16 |         2.260 |        3,624,212 | mlp_fp16_b8192.engine |
+
