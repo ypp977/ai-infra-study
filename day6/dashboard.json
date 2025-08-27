@@ -1,0 +1,23 @@
+{
+  "dashboard": {
+    "title": "Triton Monitoring CLI",
+    "panels": [
+      {
+        "type": "timeseries",
+        "title": "GPU Utilization",
+        "targets": [{"expr": "nv_gpu_utilization"}]
+      },
+      {
+        "type": "timeseries",
+        "title": "QPS",
+        "targets": [{"expr": "rate(nv_inference_request_success[1m])"}]
+      },
+      {
+        "type": "timeseries",
+        "title": "Inference Latency (ms)",
+        "targets": [{"expr": "avg(nv_inference_request_duration_us)/1000"}]
+      }
+    ]
+  },
+  "overwrite": true
+}
