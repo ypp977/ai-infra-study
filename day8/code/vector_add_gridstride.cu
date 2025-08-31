@@ -1,22 +1,26 @@
-#include <stdio.h>
 #include <cuda_runtime.h>
+#include <stdio.h>
 
 // grid-stride loop写法
-__global__ void vector_add_gridstride(const float *a, const float *b, float *c, int n) {
-    for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < n;i += blockDim.x * gridDim.x) {
+__global__ void vector_add_gridstride(const float* a, const float* b, float* c, int n)
+{
+    for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < n; i += blockDim.x * gridDim.x)
+    {
         c[i] = a[i] + b[i];
     }
 }
 
-int main() {
+int main()
+{
     int n = 1 << 20; // 1M 元素
     size_t bytes = n * sizeof(float);
 
-    float *host_a = (float *)malloc(bytes);
-    float *host_b = (float *)malloc(bytes);
-    float *host_c = (float *)malloc(bytes);
+    float* host_a = (float*)malloc(bytes);
+    float* host_b = (float*)malloc(bytes);
+    float* host_c = (float*)malloc(bytes);
 
-    for (int i = 0; i < n;i++) {
+    for (int i = 0; i < n; i++)
+    {
         host_a[i] = 1.0f;
         host_b[i] = 2.0f;
     }
@@ -31,7 +35,7 @@ int main() {
 
     // 比较两种写法
     int blockSize = 256;
-    int gridSize_small = 32; // Grid-Stride Loop 用小 grid
+    int gridSize_small = 32;                            // Grid-Stride Loop 用小 grid
     int gridSize_big = (n + blockSize - 1) / blockSize; // 传统大grid
 
     // 计时用时间

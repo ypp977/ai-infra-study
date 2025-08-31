@@ -160,7 +160,7 @@ int main() {
     cudaFree(device_a);
     cudaFree(device_b);
     cudaFree(device_c);
-    
+
     free(host_a);
     free(host_b);
     free(host_c);

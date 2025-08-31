@@ -1,8 +1,9 @@
-#include <stdio.h>
 #include <math.h>
+#include <stdio.h>
 
 // 简单数学运算kernel
-__global__ void test_math(float *out) {
+__global__ void test_math(float* out)
+{
     int i = threadIdx.x;
     float x = i * 0.1f;
 
@@ -10,7 +11,8 @@ __global__ void test_math(float *out) {
     out[i] = sinf(x) + cosf(x) + sqrt(x);
 }
 
-int main() {
+int main()
+{
     const int N = 128;
     float host_out[N], *device_out;
 
@@ -24,7 +26,8 @@ int main() {
     cudaMemcpy(host_out, device_out, N * sizeof(float), cudaMemcpyDeviceToHost);
 
     // 打印前十个元素
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 10; i++)
+    {
         printf("out[%d] = %.8f\n", i, host_out[i]);
     }
 

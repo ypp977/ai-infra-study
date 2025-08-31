@@ -1,7 +1,7 @@
-#include <stdio.h>
 #include <cuda_runtime.h>
+#include <stdio.h>
 
-__global__ void vector_add(const float *a, const float *b, float *c, int n)
+__global__ void vector_add(const float* a, const float* b, float* c, int n)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x; // 计算全局索引
 
@@ -17,9 +17,9 @@ int main()
     size_t bytes = n * sizeof(float);
 
     // 分配 host 内存
-    float *host_a = (float *)malloc(bytes);
-    float *host_b = (float *)malloc(bytes);
-    float *host_c = (float *)malloc(bytes);
+    float* host_a = (float*)malloc(bytes);
+    float* host_b = (float*)malloc(bytes);
+    float* host_c = (float*)malloc(bytes);
 
     // 初始化数据
     for (int i = 0; i < n; i++)

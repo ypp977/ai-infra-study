@@ -1,37 +1,43 @@
-#include <stdio.h>
 #include <cuda_runtime.h>
+#include <stdio.h>
 
 // 1D Block 的矩阵加法
-__global__ void mat_add_1D(const float *A, const float *B, float *C, int N) {
+__global__ void mat_add_1D(const float* A, const float* B, float* C, int N)
+{
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if(i < N * N) {
+    if (i < N * N)
+    {
         C[i] = A[i] + B[i];
     }
 }
 
 // 2D Block 的矩阵加法
-__global__ void mat_add_2D(const float *A, const float *B, float *C, int N) {
+__global__ void mat_add_2D(const float* A, const float* B, float* C, int N)
+{
     int r = blockIdx.y * blockDim.y + threadIdx.y;
     int c = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if(r < N && c < N) {
-        int idx = r * N + c;// 行主序展开
+    if (r < N && c < N)
+    {
+        int idx = r * N + c; // 行主序展开
         C[idx] = A[idx] + B[idx];
     }
 }
 
-int main() {
+int main()
+{
     const int N = 1024; // 矩阵大小N * N
     size_t bytes = N * N * sizeof(float);
 
     // 分配Host内存
-    float *host_a = (float *)malloc(bytes);
-    float *host_b = (float *)malloc(bytes);
-    float *host_c1d = (float *)malloc(bytes);
-    float *host_c2d = (float *)malloc(bytes);
+    float* host_a = (float*)malloc(bytes);
+    float* host_b = (float*)malloc(bytes);
+    float* host_c1d = (float*)malloc(bytes);
+    float* host_c2d = (float*)malloc(bytes);
 
     // 初始化矩阵数据
-    for (int i = 0; i < N * N;i++) {
+    for (int i = 0; i < N * N; i++)
+    {
         host_a[i] = 1.0f;
         host_b[i] = 2.0f;
     }
@@ -83,7 +89,8 @@ int main() {
 
     // 验证结果10 个元素
     printf("check results (first 10 elements):\n");
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 10; i++)
+    {
         printf("C1D[%d]=%.1f C2D[%d]=%.1f\n", i, host_c1d[i], i, host_c2d[i]);
     }
 

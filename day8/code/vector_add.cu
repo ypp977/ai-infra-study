@@ -1,25 +1,29 @@
-#include <stdio.h>
 #include <cuda_runtime.h>
+#include <stdio.h>
 
-__global__ void vector_add(const float *a, const float *b, float *c,int n) {
+__global__ void vector_add(const float* a, const float* b, float* c, int n)
+{
     int i = blockIdx.x * blockDim.x + threadIdx.x; // 计算全局索引
 
-    if(i < n) {
+    if (i < n)
+    {
         c[i] = a[i] + b[i];
     }
 }
 
-int main() {
+int main()
+{
     int n = 1 << 16; // 65536个元素
     size_t bytes = n * sizeof(float);
 
     // 分配 host 内存
-    float *host_a = (float *)malloc(bytes);
-    float *host_b = (float *)malloc(bytes);
-    float *host_c = (float *)malloc(bytes);
+    float* host_a = (float*)malloc(bytes);
+    float* host_b = (float*)malloc(bytes);
+    float* host_c = (float*)malloc(bytes);
 
     // 初始化数据
-    for (int i = 0; i < n;i++) {
+    for (int i = 0; i < n; i++)
+    {
         host_a[i] = 1.0f;
         host_b[i] = 2.0f;
     }
@@ -38,7 +42,6 @@ int main() {
     int blockSize = 256;
     int gridSize = (n + blockSize - 1) / blockSize;
 
-
     // 启动kernel
     vector_add<<<gridSize, blockSize>>>(device_a, device_b, device_c, n);
     cudaDeviceSynchronize();
@@ -47,7 +50,8 @@ int main() {
     cudaMemcpy(host_c, device_c, bytes, cudaMemcpyDeviceToHost);
 
     // 验证结果
-    for (int i = 0; i < 10;i++) {
+    for (int i = 0; i < 10; i++)
+    {
         printf("c[%d] = %f\n", i, host_c[i]);
     }
 
@@ -55,7 +59,7 @@ int main() {
     cudaFree(device_a);
     cudaFree(device_b);
     cudaFree(device_c);
-    
+
     free(host_a);
     free(host_b);
     free(host_c);
