@@ -103,17 +103,384 @@ nvcc -O2 shared_hello.cu -o shared_hello
 
 ## 3️⃣  深度追问（思考题）
 
-1. ### shared memory bank 冲突具体是怎么发生的？避免策略有哪些？  
+### 1. shared memory bank 冲突具体是怎么发生的？避免策略有哪些？
 
-2. ### constant memory 读取的广播机制与失效场景？  
+#### 1️⃣ Shared Memory 架构
 
-3. ### texture memory 在采样/插值中的优势，何时优于 global？  
+- **Shared Memory** 在硬件上被划分为 **32 个 bank**（对应 warp 的 32 个线程）。
+- 每个 bank 宽度 = **4 bytes**（即 1 个 `float`）。
+- Warp 内的 32 个线程如果在 **同一个时钟周期** 各自访问的地址属于 **不同 bank** → ✅ 并行无冲突。
+- 如果多个线程访问 **同一个 bank 的不同地址** → ❌ 冲突，访问会 **串行化**，延迟成倍增加。
 
-4. ### Unified Memory 如何迁移页面？过量使用会如何 thrash？  
+👉 类比：32 个收银台（bank），32 个人（线程）同时排队，如果刚好一人一个窗口 → 秒过；如果全挤到一个窗口 → 串行处理。
 
-5. ### `cudaMemcpyAsync` 与 stream 关联的前提？  
+------
 
-6. ### L2 缓存命中与 stride 访问关系？  
+#### 2️⃣ 什么时候发生冲突？
+
+假设 `s_data[]` 是 shared memory 数组：
+
+- 地址到 bank 的映射公式大致是：
+
+  ```
+  bank_id = (address / 4) % 32
+  ```
+
+- 举例：
+
+  - `s_data[tid]` (tid=0..31) → 每个线程访问不同 bank → ✅ 无冲突
+  - `s_data[tid*2]` → thread0→bank0, thread16→bank0 → ❌ 两个线程冲突
+  - `s_data[tid*17]` → stride=17，所有访问周期性落到同一 bank → ❌ 严重冲突
+
+⚠️ 特殊情况：**所有线程访问同一地址** → 会被硬件优化成 **广播**，不算冲突。
+
+------
+
+#### 3️⃣ 避免 bank 冲突的策略
+
+1. **按 warp 顺序访问（stride=1）**
+
+   - 保证 warp 内线程访问连续地址：`s_data[threadIdx.x]`。
+
+2. **使用 padding 打散映射**
+
+   - 在二维 shared memory 数组里，每行多加 1 列：
+
+     ```
+     __shared__ float s_data[BLOCK_SIZE][BLOCK_SIZE+1];
+     ```
+
+   - 避免 stride 导致多个线程落在同一 bank。
+
+3. **保证 warp 内访问 4B 对齐**
+
+   - 如果每个线程访问的数据不是 `float`，要对齐到 bank 宽度（比如 `float2` 要 8B 对齐）。
+
+4. **利用广播特性**
+
+   - 如果多个线程确实需要相同数据，可以让它们访问 **同一个地址**，硬件会自动广播。
+
+5. **数据布局优化**
+
+   - 如果是 2D/3D 数据，优先让 `threadIdx.x` 映射到连续元素，`threadIdx.y/z` 用 stride。
+
+### 2. constant memory 读取的广播机制与失效场景？
+
+#### 1️⃣ 广播机制
+
+- Constant Memory 在每个 SM 上有 **64KB 的专用 cache**。
+- 当 **warp 内的 32 个线程访问相同的 constant 地址** 时：
+  - **只需 1 次内存取数**（cache line 命中）。
+  - 硬件会自动 **广播给整个 warp**。
+  - 延迟 ≈ 访问寄存器的速度，非常快。
+
+👉 场景：`out[i] = in[i] * d_coef[0];`
+
+- 所有线程都用 `d_coef[0]` → 一次取数，warp 全部得到结果。
+
+------
+
+#### 2️⃣ 失效场景（广播不成立）
+
+当 **warp 内线程访问不同 constant 地址** 时：
+
+- 每个不同地址都需要单独的内存请求。
+- 访问请求会被 **串行化**，性能急剧下降。
+- 极端情况：32 个线程访问 32 个不同地址 → 退化为 **32 次 global memory 访问**。
+
+👉 场景：`out[i] = in[i] * d_coef[threadIdx.x];`
+
+- 每个线程访问不同的 `d_coef[]` → 无法广播，性能接近 global memory。
+
+------
+
+#### 3️⃣ 特殊情况
+
+- **多个线程访问同一个地址**：✅ 广播，最快。
+- **多个线程访问同一个 cache line 的不同地址**：部分命中，性能介于广播与全串行之间。
+- **超出 64KB constant cache 容量**：数据会从 global memory 取，性能下降。
+
+------
+
+#### 4️⃣ 应用建议
+
+- Constant memory 适合存放 **小且 warp 内所有线程都要用的只读参数**：
+  - 卷积核权重（小 kernel）
+  - 归一化系数
+  - 网络常数（学习率、激活参数）
+- 不适合存放 **大数组或线程索引访问的数据**（因为无法利用广播）。
+
+------
+
+#### ✅ 总结：
+
+- **广播机制成立**：warp 内访问相同地址 → 超高效。
+- **广播失效**：warp 内访问不同地址 → 严重退化。
+
+### 3. texture memory 在采样/插值中的优势，何时优于 global？
+
+#### 1️⃣ 背景
+
+- CUDA 提供了一种特殊的内存绑定方式：**texture / surface memory**。
+- 最初是为 **图像处理 / 图形渲染** 设计的，但在 GPGPU 场景里也能用。
+- 其底层利用了 GPU 的 **纹理缓存 (texture cache)**，对 **2D/3D 空间局部性** 有优化。
+
+------
+
+#### 2️⃣ Texture Memory 的优势
+
+1. **空间局部性缓存优化**
+   - Texture cache 专为 **2D/3D 空间访问模式** 设计。
+   - 如果相邻线程访问相邻像素/体素，cache 命中率比 global memory 高。
+2. **支持硬件插值 (Interpolation)**
+   - 纹理单元支持 **自动双线性插值 (bilinear interpolation)**、三线性插值。
+   - 这对图像缩放、滤波、卷积操作特别有用：
+     - 不需要自己写插值逻辑。
+     - 插值计算在硬件中完成，速度快。
+3. **边界处理（clamping / wrapping）**
+   - Texture API 可以直接指定边界策略：
+     - Clamp（取边缘值）
+     - Wrap（循环取值）
+   - 避免自己写 if 判断，减少分支开销。
+4. **只读数据优化**
+   - 纹理内存是 **只读的**（kernel 内不能写），这让缓存设计更高效。
+
+------
+
+#### 3️⃣ 什么时候优于 Global Memory？
+
+1. **图像/体数据处理**
+   - 比如 **图像卷积、缩放、旋转、采样、体渲染**。
+   - 相邻线程访问相邻像素时 → texture cache 提供更高带宽。
+2. **需要插值采样的场景**
+   - 例如光线追踪中的采样，深度学习中的上采样。
+   - 用 global memory 必须自己写插值逻辑；
+   - 用 texture memory → 硬件直接做 bilinear/trilinear 插值，更快更省代码。
+3. **访问模式不规则，但有局部性**
+   - 如果线程的访问模式不是严格顺序（coalesced），但有空间局部性，texture cache 能帮忙。
+   - 而 global memory 在不对齐时会浪费带宽。
+
+------
+
+#### 4️⃣ 什么时候不用 Texture？
+
+- **纯顺序访问 (coalesced)**：
+  - 如果 warp 内线程访问严格连续地址（比如大规模矩阵乘法），**global memory 带宽利用率最高**。
+  - 此时用 texture 反而没额外优势。
+- **需要写操作**：
+  - texture memory 是只读的，如果需要写（比如矩阵结果存储），必须用 global 或 shared memory。
+
+------
+
+#### 5️⃣ 总结口诀
+
+**图像体数据 → Texture Memory，硬件插值/边界处理超省心；规则顺序访问 → Global Memory，带宽利用率最高。**
+
+### 4. Unified Memory 如何迁移页面？过量使用会如何 thrash？
+
+#### 🔎 Unified Memory 的页面迁移机制
+
+##### 1️⃣ 基本机制
+
+- 使用 `cudaMallocManaged` 分配的内存，CPU 和 GPU 都能访问。
+- 数据按 **页面 (page)** 管理，通常大小为 **4KB**（也有 64KB/2MB 的大页）。
+- GPU 访问某个页面时：
+  1. 硬件检测该页面是否在显存里。
+  2. 如果 **不在显存** → 触发 **Page Fault**。
+  3. 驱动会从 **主机内存** 把该页面迁移到 GPU 显存。
+  4. 更新页表 (page table)，后续访问命中显存。
+
+👉 类似 CPU 的虚拟内存分页机制，只不过这里在 CPU ↔ GPU 之间迁移。
+
+------
+
+##### 2️⃣ 迁移触发场景
+
+- **GPU 访问主机端刚写的数据** → 迁移到显存。
+- **CPU 访问 GPU 刚写的数据** → 迁移回主机内存。
+- **多个 GPU**：可能需要在不同 GPU 之间来回拷贝页面。
+
+------
+
+##### 3️⃣ 性能开销
+
+- 一次页面迁移 = **PCIe/NVLink 拷贝延迟 + 页表更新**。
+- PCIe 4.0 带宽 ~16 GB/s，但显存带宽 ~800 GB/s，差距约 50 倍。
+- 如果频繁迁移，会严重拖慢性能。
+
+------
+
+#### 🔎 过量使用显存导致 Thrashing¢
+
+##### 1️⃣ 什么是 thrashing？
+
+- **Thrashing = 页抖动**。
+- 当 UM 分配的内存 **远大于 GPU 显存**时：
+  - GPU 访问一个页面 → 迁移进来。
+  - 访问另一个页面 → 上一个页面可能被驱逐。
+  - 下次再访问第一个页面 → 又要迁移回来。
+- 结果：GPU 一直在 **迁移页面 ↔ 驱逐页面**，而不是在计算。
+
+👉 类似于 CPU 内存不足时的 swap 风暴。
+
+------
+
+##### 2️⃣ Thrashing 的表现
+
+- **性能骤降**：kernel 执行时间从毫秒级 → 秒级甚至分钟级。
+- **nvidia-smi** 看到显存占用波动（进出频繁）。
+- **Profiler (Nsight Systems)** 里能看到大量 “Unified Memory memcpy” 事件。
+
+------
+
+##### 3️⃣ 如何避免 Thrashing？
+
+1. **避免超显存使用**
+   - 分配 UM 内存时不要超过显存容量的 1.2~1.5 倍。
+2. **分块计算 (chunking)**
+   - 把大数据分成小块，逐块迁移/计算，避免全量放在 UM。
+3. **预取 (Prefetch)**
+   - 使用 `cudaMemPrefetchAsync(ptr, size, device)` 把数据提前迁移到 GPU，减少 Page Fault。
+4. **固定驻留 (cudaMemAdvise)**
+   - 告诉驱动某些数据主要由 GPU 使用 (`cudaMemAdviseSetPreferredLocation`)，减少来回迁移。
+
+------
+
+#### ✅ 总结
+
+- **UM 迁移机制**：按页面 (4KB) 在 CPU/GPU 之间迁移，Page Fault 触发。
+- **过量使用显存**：会导致 thrashing（页抖动），GPU 一直在搬数据，性能暴跌。
+- **优化手段**：预取 + 分块 + 内存访问模式优化。
+
+### 5. `cudaMemcpyAsync` 与 stream 关联的前提？
+
+#### 1️⃣ 必须使用 **页锁定内存 (Pinned Memory)**
+
+- **Host 内存** 必须通过 `cudaMallocHost()` 或 `cudaHostAlloc()` 分配。
+- 如果用普通的 `malloc/new` 分配的 pageable memory：
+  - CUDA 在拷贝时会自动先把数据拷到一个 pinned buffer，再 DMA 到 GPU。
+  - 这个过程是同步的 → **异步失效**。
+
+✅ 正确：
+
+```
+float *h_data;
+cudaMallocHost(&h_data, size);   // pinned host memory
+cudaMemcpyAsync(d_data, h_data, size, cudaMemcpyHostToDevice, stream);
+```
+
+❌ 错误：
+
+```
+float *h_data = (float*)malloc(size); // pageable memory
+cudaMemcpyAsync(d_data, h_data, size, cudaMemcpyHostToDevice, stream); // 会阻塞
+```
+
+------
+
+#### 2️⃣ 必须显式指定 **stream**
+
+- `cudaMemcpyAsync(..., stream)` 最后一个参数是 **stream 句柄**。
+- 如果不传 → 默认用 `stream 0`，但注意：
+  - **默认流 (legacy default stream)** 会与所有其他流 **同步**。
+  - 如果想真正并行拷贝+计算，需要用 **非默认流** (`cudaStreamCreate`)。
+
+👉 示例：
+
+```
+cudaStream_t s1;
+cudaStreamCreate(&s1);
+cudaMemcpyAsync(d_data, h_data, size, cudaMemcpyHostToDevice, s1);
+```
+
+------
+
+#### 3️⃣ 硬件必须支持 **并发拷贝与计算**
+
+- GPU 必须有 **独立 copy engine**（通常从 Kepler 架构开始都有）。
+
+- 可用 `deviceQuery` 查看：
+
+  ```
+  Concurrent copy and kernel execution: Yes with 2 copy engines
+  ```
+
+- 如果只有 1 个 copy engine，则只能同时做一个方向的拷贝。
+
+------
+
+#### 4️⃣ API 语义
+
+- `cudaMemcpyAsync` 只是把拷贝任务 **排进某个 stream 的队列**，不会立刻阻塞 CPU。
+- 只有当：
+  - `cudaStreamSynchronize(stream)`
+  - 或 `cudaEventSynchronize(event)`
+  - 或 `cudaDeviceSynchronize()`
+     这些同步 API 被调用时，才会等待拷贝完成。
+
+#### ✅ 总结
+
+`cudaMemcpyAsync` 要想真正异步并和 stream 关联，必须满足：
+
+1. **Host 内存是 pinned memory**（用 `cudaMallocHost` 分配）。
+2. **使用非默认 stream**（用 `cudaStreamCreate` 创建）。
+3. **GPU 支持并发拷贝和计算**（有独立 copy engine）。
+
+### 6. L2 缓存命中与 stride 访问关系？
+
+#### 1️⃣ GPU L2 缓存特点
+
+- L2 cache 是 **全局共享**的（所有 SM 访问同一个 L2）。
+- cache line 通常是 **128 字节**（即 32 个 `float`）。
+- L2 命中率取决于 **线程访存模式是否具有空间局部性**。
+
+------
+
+#### 2️⃣ Stride 访问模式
+
+设 warp 内有 32 个线程，每个线程访问 `A[tid * stride]`：
+
+- **stride = 1（连续访问）**
+  - 线程 0→A[0], 线程 1→A[1], ...
+  - 32 个线程访问正好落在 **一个 cache line (128B)** 里。
+  - ✅ 完美 coalescing，L2 命中率最高，带宽利用率最高。
+- **stride = 2**
+  - 线程 0→A[0], 线程 1→A[2], 线程 2→A[4]...
+  - warp 内访问跨度大，可能需要 **2 个 cache line**。
+  - L2 命中率下降一半。
+- **stride = 4**
+  - warp 内 32 个线程访问间隔更大，可能需要 **4 个 cache line**。
+  - L2 命中率再下降。
+- **stride ≥ 32**
+  - 每个线程访问的地址都落在不同的 cache line。
+  - ❌ 完全没有空间局部性，L2 命中率接近 0。
+  - 每次访问都要走显存，带宽利用率最低。
+
+------
+
+#### 3️⃣ 总结规律
+
+- **小 stride（≤1）**：访问集中在同一个或少数 cache line → L2 命中率高。
+- **大 stride（≥warp 大小）**：每线程独占一个 cache line → L2 命中率几乎为 0。
+- **命中率与 stride 成反比**：stride 越大，cache line 的空间局部性越差。
+
+------
+
+#### 4️⃣ 避免 stride 带来的 L2 Miss
+
+1. **调整数据布局**
+   - 改变数组维度排列，让线程访问连续内存。
+   - 比如矩阵转置时，使用 **shared memory tile** 重排数据。
+2. **利用 shared memory 缓存**
+   - 把 stride 访问的数据块先搬到 shared memory，再按行访问。
+3. **软件 prefetch**
+   - 提前加载未来需要的数据，减少 L2 miss 开销。
+
+------
+
+#### ✅ 总结
+
+**GPU 的 L2 缓存命中率高度依赖 warp 内线程的访问模式。 连续访问（stride=1）命中率最高；stride 越大，命中率越低，最终退化成全局显存访问。**
 
 ## 4️⃣ 实验
 
