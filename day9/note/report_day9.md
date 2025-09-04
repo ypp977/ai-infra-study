@@ -2,22 +2,23 @@
 
 ## 🎯 学习目标
 
-- 掌握 **CUDA 内存层次**：寄存器、共享内存 (shared)、全局内存 (global)。
-- 学会 **声明、使用、同步 shared memory**。
-- 在 **归约 (Reduction)** 场景中体会 shared memory 的性能优势。
-- 通过实验验证 **block 大小、bank conflict、atomicAdd 的作用**。
+1. 理解 GPU 的多级存储体系（register、shared、global、constant、texture、L2 cache）。
+2. 学会使用 **constant memory** 和 **texture memory**。
+3. 掌握 shared memory **bank conflict** 产生原因和解决方法。
+4. 用 Nsight Compute 观察不同内存层次的利用率（cache hit / bank conflict）。
 
 ------
 
-## 1️⃣ CUDA 内存层次复习
+## 1️⃣CUDA 内存层次复习
 
-| 类型       | 作用范围     | 特点                         | 延迟           | 用途                       |
-| ---------- | ------------ | ---------------------------- | -------------- | -------------------------- |
-| 寄存器     | 每个线程私有 | 最快，数量有限               | ~1 cycle       | 保存临时变量               |
-| Shared Mem | 每个 Block   | Block 内共享，需手动管理     | ~10 cycles     | Block 内线程通信、缓存数据 |
-| Global Mem | 全局可见     | 所有线程可见，带宽大但延迟高 | 400–800 cycles | 主数据存储                 |
-
-👉 **优化关键**：尽量减少 Global Memory 访问，利用 shared memory 在 block 内缓存 & 并行计算。
+| 类型         | 作用范围   | 特点                    | 延迟           | 典型用途            |
+| ------------ | ---------- | ----------------------- | -------------- | ------------------- |
+| 寄存器       | 每线程私有 | 最快，数量有限          | ~1 cycle       | 保存局部变量        |
+| Shared Mem   | 每个 Block | Block 内共享，需同步    | ~10 cycles     | 线程通信、tile 缓存 |
+| Global Mem   | 全局可见   | 带宽大，但延迟高        | 400–800 cycles | 主数据存储          |
+| Constant Mem | 全局只读   | 广播优化，warp 内高效   | ~寄存器速度    | 超参数、卷积核      |
+| Texture Mem  | 全局只读   | 空间局部性 cache + 插值 | ~100 cycles    | 图像处理、采样/插值 |
+| L2 Cache     | 全局共享   | SM 之间共享，128B 行宽  | 100–200 cycles | 缓解全局内存延迟    |
 
 ------
 
@@ -1141,10 +1142,10 @@ nvcc -O2 async_copy.cu -o async_copy
 
 ------
 
-### ✅ 总结
+## ✅ 总结
 
-- **实验 1**：Shared Memory 显著减少全局访存，带宽利用更高。
-- **实验 2**：stride=17 导致 bank conflict，加 padding 消除后性能恢复。
-- **实验 3**：constant memory 广播访问效率极高。
-- **实验 4**：Unified Memory 超显存时频繁迁移，性能骤降。
-- **实验 5**：异步拷贝 + stream 可实现拷贝/计算重叠，显著加速。
+- **Global memory**：大带宽，但必须 coalesced。
+- **Shared memory**：延迟低，但要避免 bank conflict（可用 padding）。
+- **Constant memory**：warp 广播极快，访问不同地址会退化。
+- **Texture memory**：适合空间局部性强的随机访问 + 插值场景。
+- **L2 cache**：受 stride 访问模式影响显著。
