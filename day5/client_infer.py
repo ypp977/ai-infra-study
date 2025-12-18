@@ -26,3 +26,4 @@ output_data = result.as_numpy("output")
 print(f"推理结果 shape: {output_data.shape}")   # 应该是 (8192, 10)
 print(f"耗时: {end - start:.4f} 秒")
 print("示例输出前2个样本:", output_data[:2])
+
