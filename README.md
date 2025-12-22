@@ -26,6 +26,7 @@
 docker pull pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime
 docker run --gpus all -it --rm -v $PWD:/ws pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime bash
 python -c "import torch;print('CUDA:', torch.cuda.is_available())"
+
 ```
 
 ### 📂 交付成果
