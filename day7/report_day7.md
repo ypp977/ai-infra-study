@@ -130,6 +130,7 @@ for epoch in range(1):
         optimizer.step()
 print("训练完成，loss:", loss.item())
 torch.save(model.state_dict(), "mlp.pth")
+
 ```
 
 #### (2) 导出 MNIST ONNX
